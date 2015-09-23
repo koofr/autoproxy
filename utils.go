@@ -2,6 +2,7 @@ package autoproxy
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"strings"
@@ -10,12 +11,6 @@ import (
 var (
 	ErrCacheMiss = errors.New("Cache miss")
 )
-
-func fixUrlSchema(u *url.URL) {
-	if u.Scheme == "" {
-		u.Scheme = "http"
-	}
-}
 
 var portMap = map[string]string{
 	"http":  "80",
@@ -36,6 +31,13 @@ func canonicalAddr(url *url.URL) string {
 	return addr
 }
 
+func safeParseUrl(in string) (*url.URL, error) {
+	if !strings.HasPrefix(in, "http") {
+		in = fmt.Sprintf("http://%s", in)
+	}
+	return url.Parse(in)
+}
+
 func parseProxyOverride(proxyOverride string) (overrides []*url.URL, localOverride bool) {
 	overrides = make([]*url.URL, 0)
 	for _, urlMaybe := range strings.Split(strings.TrimSpace(proxyOverride), ";") {
@@ -43,9 +45,8 @@ func parseProxyOverride(proxyOverride string) (overrides []*url.URL, localOverri
 		if urlMaybe == "<local>" {
 			localOverride = true
 		} else {
-			overrideUrl, err := url.Parse(urlMaybe)
+			overrideUrl, err := safeParseUrl(urlMaybe)
 			if err == nil {
-				fixUrlSchema(overrideUrl)
 				overrides = append(overrides, overrideUrl)
 			}
 		}

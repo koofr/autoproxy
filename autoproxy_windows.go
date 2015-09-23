@@ -2,7 +2,6 @@
 package autoproxy
 
 import (
-	"fmt"
 	"golang.org/x/sys/windows/registry"
 	"net"
 	"net/http"
@@ -115,11 +114,9 @@ func invalidateCache() {
 func notifyIpChange(notifyCh chan error) {
 
 	for {
-		r1, r2, err := notifyAddrChange.Call(0, 0)
-		fmt.Printf("notifyIpChange %+v %+v %+v\n", r1, r2, err)
+		notifyAddrChange.Call(0, 0)
 		notifyCh <- nil
 	}
-
 }
 
 func notifyRegChange(key registry.Key, path string, notifyCh chan error) (err error) {
@@ -128,8 +125,7 @@ func notifyRegChange(key registry.Key, path string, notifyCh chan error) (err er
 		return
 	}
 	for {
-		r1, r2, err := regNotifyChangeKeyValue.Call(uintptr(k), 0, 0x00000001|0x00000004, 0, 0)
-		fmt.Printf("notifyRegChange %+v %+v %+v\n", r1, r2, err)
+		regNotifyChangeKeyValue.Call(uintptr(k), 0, 0x00000001|0x00000004, 0, 0)
 		notifyCh <- nil
 	}
 }
@@ -177,8 +173,7 @@ func ProxyFromRegistry(req *http.Request) (proxyUrl *url.URL, err error) {
 		// TODO check for custom overrides
 	}
 
-	proxyUrl, err = url.Parse(proxyServerStr)
-	fixUrlSchema(proxyUrl)
+	proxyUrl, err = safeParseUrl(proxyServerStr)
 	return
 }
 
@@ -240,10 +235,9 @@ func ProxyFromAutoConfig(req *http.Request) (proxyUrl *url.URL, err error) {
 
 		proxyMaybe = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(proxyMaybe), "proxy "))
 
-		urlMaybe, err := url.Parse(proxyMaybe)
+		urlMaybe, err := safeParseUrl(proxyMaybe)
 		if err == nil {
-			fixUrlSchema(urlMaybe)
-			return urlMaybe, nil
+			return urlMaybe, err
 		}
 	}
 
