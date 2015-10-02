@@ -9,7 +9,8 @@ import (
 )
 
 var (
-	ErrCacheMiss = errors.New("Cache miss")
+	ErrCacheMiss     = errors.New("Cache miss")
+	ErrCacheDisabled = errors.New("Cache disabled")
 )
 
 var portMap = map[string]string{

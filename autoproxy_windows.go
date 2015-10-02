@@ -2,7 +2,6 @@
 package autoproxy
 
 import (
-	"golang.org/x/sys/windows/registry"
 	"net"
 	"net/http"
 	"net/url"
@@ -10,6 +9,8 @@ import (
 	"sync"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows/registry"
 )
 
 var (
@@ -35,21 +36,25 @@ const (
 	PathInternetSettings = `Software\Microsoft\Windows\CurrentVersion\Internet Settings`
 )
 
+// SmartProxy first does lookup if it already knows proxy server for given URL and returns cached result, otherwise it fallback to Proxy() function. In case it does not manage to initailize cache, it returns ErrCacheDisabled error and one should use Proxy() function in this case
 func SmartProxy(req *http.Request) (proxyUrl *url.URL, err error) {
 
 	initOnce.Do(initCache)
 
-	if useLookup {
-		proxyUrl, err = lookup(req)
+	if !useLookup {
+		err = ErrCacheDisabled
+		return
 	}
 
-	if err != nil || useLookup == false {
+	proxyUrl, err = lookup(req)
+	if err != nil {
 		proxyUrl, err = Proxy(req)
 	}
 
 	return
 }
 
+// Proxy returns system proxy
 func Proxy(req *http.Request) (proxyUrl *url.URL, err error) {
 	proxyUrl, err = ProxyFromAutoConfig(req)
 
