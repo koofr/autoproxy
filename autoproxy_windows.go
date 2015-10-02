@@ -80,14 +80,14 @@ func lookup(req *http.Request) (proxyUrl *url.URL, err error) {
 
 func initCache() {
 	if iphlpapi, err := syscall.LoadDLL("Iphlpapi.dll"); err == nil {
-		if notifyAddrChange, err := iphlpapi.FindProc("NotifyAddrChange"); err == nil {
-			notifyAddrChange = notifyAddrChange
+		if p, err := iphlpapi.FindProc("NotifyAddrChange"); err == nil {
+			notifyAddrChange = p
 		}
 	}
 
 	if advapi32, err := syscall.LoadDLL("Advapi32.dll"); err == nil {
-		if regNotifyChangeKeyValue, err := advapi32.FindProc("RegNotifyChangeKeyValue"); err == nil {
-			regNotifyChangeKeyValue = regNotifyChangeKeyValue
+		if p, err := advapi32.FindProc("RegNotifyChangeKeyValue"); err == nil {
+			regNotifyChangeKeyValue = p
 		}
 	}
 
