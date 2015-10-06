@@ -8,9 +8,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"unsafe"
-
 	"golang.org/x/sys/windows/registry"
+	"github.com/robertkrimen/otto"
 )
 
 var (
@@ -22,14 +21,6 @@ var (
 	notifyAddrChange        *syscall.Proc
 	notifyCh                chan error
 	listeners               map[string]chan *url.URL
-
-	wininet = syscall.MustLoadDLL("wininet.dll")
-	jsproxy = syscall.MustLoadDLL("jsproxy.dll")
-
-	internetGetProxyInfo = jsproxy.MustFindProc("InternetGetProxyInfo")
-	internetOpen         = wininet.MustFindProc("InternetOpenW")
-	internetCloseHandle  = wininet.MustFindProc("InternetCloseHandle")
-	internetOpenUrl      = wininet.MustFindProc("InternetOpenUrlW")
 )
 
 const (
@@ -49,6 +40,9 @@ func SmartProxy(req *http.Request) (proxyUrl *url.URL, err error) {
 	proxyUrl, err = lookup(req)
 	if err != nil {
 		proxyUrl, err = Proxy(req)
+		if err == nil {
+			setCache(req, proxyUrl)
+		}
 	}
 
 	return
@@ -62,6 +56,14 @@ func Proxy(req *http.Request) (proxyUrl *url.URL, err error) {
 		proxyUrl, err = ProxyFromRegistry(req)
 	}
 	return
+}
+
+func setCache(req *http.Request, proxyUrl *url.URL) {
+	cacheLock.Lock()
+	defer cacheLock.Unlock()
+
+	addr := canonicalAddr(req.URL)
+	cache[addr] = proxyUrl
 }
 
 func lookup(req *http.Request) (proxyUrl *url.URL, err error) {
@@ -94,13 +96,14 @@ func initCache() {
 	cacheLock.Lock()
 	defer cacheLock.Unlock()
 
+	notifyCh = make(chan error)
+
 	if regNotifyChangeKeyValue != nil && notifyAddrChange != nil {
 		useLookup = true
 		go notifyIpChange(notifyCh)
 		go notifyRegChange(registry.CURRENT_USER, PathInternetSettings, notifyCh)
 	}
 
-	notifyCh = make(chan error)
 	cache = make(map[string]*url.URL)
 
 	go func() {
@@ -191,45 +194,31 @@ func ProxyFromAutoConfig(req *http.Request) (proxyUrl *url.URL, err error) {
 	}
 	defer k.Close()
 
-	_, _, err = k.GetStringValue("AutoConfigURL")
+	autoConfigURL, _, err := k.GetStringValue("AutoConfigURL")
 	if err != nil {
 		// no auto proxy url
 		return nil, nil
 	}
 
-	// just do fake request to make windows load proxy settings, does not work otherwise
-	hInternet, _, _ := internetOpen.Call(uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("fake req"))), 0, 0, 0, 0)
-	internetOpenUrl.Call(hInternet, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("http://0.0.0.0"))), 0, 0, 0, 0)
-	internetCloseHandle.Call(hInternet)
-
-	lpszUrl := syscall.StringBytePtr(req.URL.String())
-	dwUrlLength := uint32(len(req.URL.String()))
-
-	lpszUrlHostName := syscall.StringBytePtr(req.URL.Host)
-	dwUrlHostNameLength := uint32(len(req.URL.Host))
-
-	lplpszProxyHostName := make([]byte, 1024, 1024)
-	lpdwProxyHostNameLength := uint32(len(lplpszProxyHostName))
-
-	r1, _, err := internetGetProxyInfo.Call(
-		uintptr(unsafe.Pointer(lpszUrl)),
-		uintptr(dwUrlLength),
-		uintptr(unsafe.Pointer(lpszUrlHostName)),
-		uintptr(dwUrlHostNameLength),
-		uintptr(unsafe.Pointer(&lplpszProxyHostName)),
-		uintptr(unsafe.Pointer(&lpdwProxyHostNameLength)),
-	)
-
-	// if syscall returns false
-	if r1 != 1 {
-		return
+	res, err := http.Get(autoConfigURL)
+	if err != nil {
+		return nil, err
 	}
-	// clear error success stupidity
-	err = nil
 
-	// create string from buffer
-	proxyStr := string(lplpszProxyHostName[0 : lpdwProxyHostNameLength-1])
+	vm := otto.New()
+	vm.Run(res.Body)
+	vm.Set("url", req.URL)
+	vm.Set("host", req.URL.Host)
+	vm.Run("proxy = FindProxyForURL(url, host);")
+	val, err := vm.Get("proxy")
+	if err != nil {
+		return nil, err
+	}
 
+	proxyStr, err := val.ToString()
+	if err != nil {
+		return nil, err
+	}
 	// parse it
 	// format reference: https://en.wikipedia.org/wiki/Proxy_auto-config
 	for _, proxyMaybe := range strings.Split(proxyStr, ";") {

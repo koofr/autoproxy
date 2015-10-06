@@ -48,4 +48,23 @@ func main() {
 		d = time.Since(start)
 		fmt.Printf("SmartProxy %s %v took %s\n", p, err, d)
 	}
+
+
+	p, err := autoproxy.SmartProxy(fakeReq)
+	if err != nil {
+		fmt.Println("err", err)
+	}
+	for {
+		time.Sleep(time.Second)
+		newProxy, err := autoproxy.SmartProxy(fakeReq)
+		if err != nil {
+			fmt.Println("err", err)
+			continue
+		}
+		if newProxy != p {
+			p = newProxy
+			fmt.Printf("SmartProxy %s\n", p)
+		}
+
+	}
 }
